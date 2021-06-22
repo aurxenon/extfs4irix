@@ -9,7 +9,7 @@ ext2_fs_data_t* ext2fs_mount(char* filename) {
     fs_data->superblock = (struct ext2_super_block*)malloc(sizeof(struct ext2_super_block));
 
     if (fs_data->superblock == NULL) {
-        printf(" unable to allocate space for superblock\n");
+        printf("Error: unable to allocate space for superblock\n");
 
         free(fs_data);
         return NULL;
@@ -17,7 +17,7 @@ ext2_fs_data_t* ext2fs_mount(char* filename) {
 
     read_device((uint8_t*)fs_data->superblock, 1, sizeof(struct ext2_super_block), 0);
 
-    if (fs_data->superblock->s_magic != EXT2_MAGIC) {
+    if (le16toh(fs_data->superblock->s_magic) != EXT2_MAGIC) {
         printf("Error: magic not detected\n");
 
         free(fs_data->superblock);
@@ -27,10 +27,10 @@ ext2_fs_data_t* ext2fs_mount(char* filename) {
     }
 
     fs_data->block_group_desc_count = 
-        fs_data->superblock->s_blocks_count / fs_data->superblock->s_blocks_per_group;
+        le32toh(fs_data->superblock->s_blocks_count) / le32toh(fs_data->superblock->s_blocks_per_group);
     
     //if the number of descriptors is not an evenly divisible number, round the result up
-    if (fs_data->superblock->s_blocks_count % fs_data->superblock->s_blocks_per_group != 0) { 
+    if (le32toh(fs_data->superblock->s_blocks_count) % le32toh(fs_data->superblock->s_blocks_per_group) != 0) { 
         fs_data->block_group_desc_count++;
     }
 
@@ -65,9 +65,9 @@ void ext2fs_unmount(ext2_fs_data_t* fs_data) {
 
 struct ext2_inode get_inode_from_num(ext2_fs_data_t* fs_data, uint32_t inodeIndex) {
     //determine which block group contains the inode
-    uint32_t block_group = (inodeIndex - 1) / fs_data->superblock->s_inodes_per_group;
+    uint32_t block_group = (inodeIndex - 1) / le32toh(fs_data->superblock->s_inodes_per_group);
     //figure out what the index is within the block group
-    uint32_t inode_index_in_block_group = (inodeIndex - 1) % fs_data->superblock->s_inodes_per_group;
+    uint32_t inode_index_in_block_group = (inodeIndex - 1) % le32toh(fs_data->superblock->s_inodes_per_group);
     //figure out how many bytes away it is
     uint32_t inode_byte_offset = inode_index_in_block_group * sizeof(struct ext2_inode);
     //figure out how many blocks away it is from the inode table start
@@ -75,7 +75,7 @@ struct ext2_inode get_inode_from_num(ext2_fs_data_t* fs_data, uint32_t inodeInde
     //figure out byte offset within block
     uint32_t inode_offset_in_block = inode_byte_offset - (containing_block * get_block_size(fs_data));
     //figure out the block that's actually containing the inode
-    uint32_t inode_block = fs_data->group_descriptors[block_group].bg_inode_table + containing_block;
+    uint32_t inode_block = le32toh(fs_data->group_descriptors[block_group].bg_inode_table) + containing_block;
 
     struct ext2_inode inode;
 
@@ -119,7 +119,7 @@ struct ext2_inode* get_file_inode(ext2_fs_data_t* fs_data, char* pathname) {
 }
 
 uint32_t search_directory(ext2_fs_data_t* fs_data, struct ext2_inode* directory, char* filename) {
-    size_t dir_search_size = directory->i_size;
+    size_t dir_search_size = le32toh(directory->i_size);
     size_t bytes_read = 0;
 
     //used for keeping track of starting position for free()
@@ -128,15 +128,15 @@ uint32_t search_directory(ext2_fs_data_t* fs_data, struct ext2_inode* directory,
     struct ext2_dir_entry* dir_entries = dir_entries_start;
     read_inode(fs_data, directory, dir_entries, dir_search_size);
 
-    while (bytes_read != dir_search_size) {
+    while (bytes_read <= dir_search_size) {
         if (strncmp(dir_entries->name, filename, dir_entries->name_len) == 0) {
-            uint32_t inode_num = dir_entries->inode;
+            uint32_t inode_num = le32toh(dir_entries->inode);
             free(dir_entries_start);
             return inode_num;
         }
-        bytes_read = bytes_read + dir_entries->rec_len;
-        //for some reason if i dont cast dirEntries to an off_t it doesn't add correctly
-        dir_entries = (struct ext2_dir_entry*)((off_t)dir_entries + dir_entries->rec_len);
+        bytes_read = bytes_read + le16toh(dir_entries->rec_len);
+        //for some reason if i dont cast dirEntries to a size_t it doesn't add correctly
+        dir_entries = (struct ext2_dir_entry*)((size_t)dir_entries + le16toh(dir_entries->rec_len));
     }
 
     free(dir_entries_start);
@@ -152,13 +152,13 @@ void read_inode(ext2_fs_data_t* fs_data, struct ext2_inode* inode, void* buffer,
         for (size_t i = 0; i < block_count; i++) {
             if (bytes_left < get_block_size(fs_data)) {
                 //reads in the remaining bytes (if the remaining bytes are less than a block)
-                if (inode->i_block[i] != 0) {
-                    read_device(buffer_copy, inode->i_block[i], bytes_left, 0);
+                if (le32toh(inode->i_block[i]) != 0) {
+                    read_device(buffer_copy, le32toh(inode->i_block[i]), bytes_left, 0);
                 }
             } else {
                 //reads in the remaining bytes (if block-sized)
-                if (inode->i_block[i] != 0) {
-                    read_device(buffer_copy, inode->i_block[i], get_block_size(fs_data), 0);
+                if (le32toh(inode->i_block[i]) != 0) {
+                    read_device(buffer_copy, le32toh(inode->i_block[i]), get_block_size(fs_data), 0);
                     buffer_copy += get_block_size(fs_data);
                     bytes_left -= get_block_size(fs_data);
                 }
@@ -176,18 +176,16 @@ void read_device(uint8_t* buffer, size_t lba, size_t len, size_t byte_offset) {
     }
 
     int c;
-    uint32_t counter;
+    fseek(ext2FSFile, (lba * SECTOR_SIZE) + byte_offset, SEEK_SET);
 
-    for (uint32_t i = 0; i < ((lba * SECTOR_SIZE) + byte_offset) + len; i++) {
+    for (uint32_t i = 0; i < len; i++) {
         c = fgetc(ext2FSFile);
 
         if (c == EOF) {
             fclose(ext2FSFile);
             return;
         }
-        if (i >= ((lba * SECTOR_SIZE) + byte_offset)) {
-            buffer[i - ((lba * SECTOR_SIZE) + byte_offset)] = (uint8_t)c;
-        }
+        buffer[i] = (uint8_t)c;
     }
 
     fclose(ext2FSFile);

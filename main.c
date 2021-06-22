@@ -23,9 +23,9 @@ int main(int argc, char** argv) {
         ext2fs_unmount(fs_data);
         return -1;
     }
-    char* buffer = malloc(file->i_size + 1);
-    buffer[file->i_size] = 0;
-    read_inode(fs_data, file, buffer, file->i_size);
+    char* buffer = malloc(le32toh(file->i_size) + 1);
+    buffer[le32toh(file->i_size)] = 0;
+    read_inode(fs_data, file, buffer, le32toh(file->i_size));
     
     printf("%s contents: %s\n", argv[2], buffer);
     free(buffer);

@@ -7,6 +7,7 @@ EXT2_OBJDIR = $(CWD)/obj
 
 EXT2_OBJ =  $(EXT2_OBJDIR)/ext2fs.o
 EXT2_OBJ += $(EXT2_OBJDIR)/main.o
+EXT2_OBJ += $(EXT2_OBJDIR)/strsep.o
 EXT2_TARGET = $(EXT2_OUT)/ext2impl
 
 EXT2_CFLAGS = $(CFLAGS) -g -fPIE

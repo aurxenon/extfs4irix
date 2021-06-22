@@ -7,6 +7,7 @@
 #include <inttypes.h>
 #include <sys/types.h>
 #include "ext2.h"
+#include "portability.h"
 
 #define SECTOR_SIZE 1024 //the sector size we use for testing purposes
 
@@ -31,8 +32,8 @@ void read_inode(ext2_fs_data_t* fs_data, struct ext2_inode* inode, void* buffer,
 void read_device(uint8_t* buffer, size_t lba, size_t len, size_t byte_offset);
 
 static inline size_t get_block_size(ext2_fs_data_t* fs_data) {
-    if (fs_data->superblock->s_magic == EXT2_MAGIC) {
-        return 1024 << fs_data->superblock->s_log_block_size;
+    if (le32toh(fs_data->superblock->s_magic) == EXT2_MAGIC) {
+        return 1024 << le32toh(fs_data->superblock->s_log_block_size);
     } else {
         return 1024;
     }
